@@ -1,0 +1,19 @@
+<package>
+  <description brief="in_class_day03">
+
+     in_class_day03
+
+  </description>
+  <author>zhecan wang</author>
+  <license>BSD</license>
+  <review status="unreviewed" notes=""/>
+  <url>http://ros.org/wiki/in_class_day03</url>
+  <depend package="rospy"/>
+  <depend package="std_msgs"/>
+  <depend package="geometry_msgs"/>
+  <depend package="neato_node"/>
+  <depend package="sensor_msgs"/>
+
+</package>
+
+
