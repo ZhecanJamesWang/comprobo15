@@ -14,7 +14,7 @@ class three_state(object):
         rospy.Subscriber("/scan", LaserScan, self.Laser_scan_signal)
         # rospy.spin()
         self.state = 0
-        self.threshold = 1
+        self.threshold = 0.2
 
 
     def bump_signal(self, msg):
@@ -40,7 +40,8 @@ class three_state(object):
     def rotate_left(self):
         twister = Twist(linear=Vector3(x=0,y=0,z=0),angular=Vector3(x=0,y=0,z=1))
         self.pub.publish(twister)
-        # rospy.sleep(1)
+        rospy.sleep(1)
+        print "rotate_left"
         self.state = 0  
 
     def move_backward(self):
@@ -56,7 +57,7 @@ class three_state(object):
 
     def run(self):
         while not rospy.is_shutdown():
-            # print self.state
+            print self.state
             if self.state == 0 :
                 self.move_forward()
             if self.state == 1:
