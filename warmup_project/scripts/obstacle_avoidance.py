@@ -44,9 +44,10 @@ class ObstacleAvoidance(object):
         self.opposite_turns_rad = [deg * math.pi / 180 for deg in self.opposite_turns]
         self.turn_k = .7
         self.twist = Twist()
-        self.turn_flag = False
+        self.turn_flag = True
         self.unit_dist = .2
         self.yaw = None
+        self.ex_x, self.ex_y = 0, 0
     
     @staticmethod
     def convert_pose_to_xy_and_theta(pose):
@@ -55,42 +56,73 @@ class ObstacleAvoidance(object):
         angles = euler_from_quaternion(orientation_tuple)
         return pose.position.x, pose.position.y, angles[2]
     
-
-
     def odom_signal(self, msg):
         self.odom = msg
         self.x, self.y, self.yaw = self.convert_pose_to_xy_and_theta(self.odom.pose.pose)
+        # print self.ex_x, self.ex_y, self.x, self.y
         if self.turn_flag:
             d = math.sqrt((self.ex_x-self.x)**2 + (self.ex_y-self.y)**2)
-            if d == self.unit_dist:
+            if d >= self.unit_dist:
                 self.turn_flag = False
 
 
     def scan_signal(self, msg):
-        if not self.turn_flag:   
+        # print "self.turn_flag", self.turn_flag
+        if not self.turn_flag: 
+        # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!  
             self.scan = msg
-            quad = [self.scan.ranges[i*self.range:(i+1)*self.range] for i in range(self.num_quads)]
-            quad_average = [np.mean(q) for q in quad]
-            q = np.min(quad_average)
-            i = quad_average.index(q)    
+            quad = [np.array(self.scan.ranges[i*self.range:(i+1)*self.range]) for i in range(self.num_quads)]
+            # quad = [self.scan.ranges[i*self.range:(i+1)*self.range] for i in range(self.num_quads)]
+            
+            # remove the zeros
+            quad = [q[q.nonzero()] for q in quad]
+
+            quad_average = np.array([np.mean(q) for q in quad])
+            
+            # if nan, make big!
+            for i, e in enumerate(quad_average):
+                if np.isnan(e):
+                    quad_average[i] = 10
+            # print "quad_average", quad_average
+            # try:
+
+            q = np.min(quad_average[quad_average.nonzero()])
+            i = list(quad_average).index(q)
+            # this is raised when np.min(empty array), i.e. when there are no objects nearby    
+            # except ValueError, e:
+            #     # distance is big, and thus we don't care
+            #     q = 10
+            #     i = None
+            print "quad", (i, q)
+            
+            # if i'm still close to an object
             if q < .3:
                 if self.yaw:
                     self.twist.angular.z = self.turn_k*(angle_diff(self.opposite_turns_rad[i], self.yaw))
-                    if angle_diff(self.opposite_turns_rad[i], self.yaw) < 0.1:
+                    # if it has reached the desired angle
+                    if angle_diff(self.opposite_turns_rad[i], self.yaw) < 0.01:
+                        # stop turning
+                        # self.turn_flag = True
+                        pass
+                        # set initial x,y
                         self.ex_x, self.ex_y = self.x, self.y
-                        self.turn_flag = True
-            elif q > .3:
-            # elif q in [.3:2]:
-                if angle_diff(0, self.yaw) > 0.1:
-                    self.twist.angular.z = self.turn_k*(angle_diff(0, self.yaw))
-                else:
-                    self.twist.linear.x = 1
+        # once I'm in safe distance
+        # elif q > .3:
+        # # elif q in [.3:2]:
+        #     if angle_diff(0, self.yaw) > 0.1:
+        #         self.twist.angular.z = self.turn_k*(angle_diff(0, self.yaw))
+        #     else:
+
+        if self.turn_flag:
+            self.twist.linear.x = 1
 
     def run(self):
         r = rospy.Rate(10)
         while not rospy.is_shutdown():
             if self.twist:
-                self.pub.publish(self.twist)
+                pass
+                # print self.twist
+                # self.pub.publish(self.twist)
             r.sleep()
 
 if __name__ == '__main__':
