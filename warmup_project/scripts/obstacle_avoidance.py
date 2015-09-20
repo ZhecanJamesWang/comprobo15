@@ -41,14 +41,16 @@ class ObstacleAvoidance(object):
         self.range_rad = math.pi / 180 * self.range
         self.num_quads = int(360/self.range)
         self.opposite_turns = [(i*self.range+180+self.range/2) % 360 for i in range(self.num_quads)]
-        self.opposite_turns_rad = [deg * math.pi / 180 for deg in self.opposite_turns]
-        self.turn_k = .7
+        # self.opposite_turns_rad = [deg * math.pi / 180 for deg in self.opposite_turns]
+        self.turn_k = .2
         self.twist = Twist()
-        self.turn_flag = True
-        self.unit_dist = .2
+        self.noturn = True
+        self.turn_target = None
+        self.unit_dist = 0.4
         self.yaw = None
-        self.ex_x, self.ex_y = 0, 0
-    
+        self.ex_x, self.ex_y = None, None
+        self.first_jank = True
+
     @staticmethod
     def convert_pose_to_xy_and_theta(pose):
         """ Convert pose (geometry_msgs.Pose) to a (x,y,yaw) tuple """
@@ -59,20 +61,27 @@ class ObstacleAvoidance(object):
     def odom_signal(self, msg):
         self.odom = msg
         self.x, self.y, self.yaw = self.convert_pose_to_xy_and_theta(self.odom.pose.pose)
-        # print self.ex_x, self.ex_y, self.x, self.y
-        if self.turn_flag:
+        if self.first_jank:
+            self.ex_x, self.ex_y = self.x, self.y
+            self.first_jank = False
+
+        if self.noturn:
             d = math.sqrt((self.ex_x-self.x)**2 + (self.ex_y-self.y)**2)
+            
+            # once we've moved the appropriate distance
             if d >= self.unit_dist:
-                self.turn_flag = False
+                # we are preparing to turn again
+                self.noturn = False
+                self.twist.linear.x = 0
+
 
 
     def scan_signal(self, msg):
-        # print "self.turn_flag", self.turn_flag
-        if not self.turn_flag: 
-        # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!  
+        print "(self.noturn, yaw)", (self.noturn, self.yaw)
+        if not self.noturn:
             self.scan = msg
             quad = [np.array(self.scan.ranges[i*self.range:(i+1)*self.range]) for i in range(self.num_quads)]
-            # quad = [self.scan.ranges[i*self.range:(i+1)*self.range] for i in range(self.num_quads)]
+            quad = [quad[0],quad[3]]
             
             # remove the zeros
             quad = [q[q.nonzero()] for q in quad]
@@ -84,45 +93,52 @@ class ObstacleAvoidance(object):
                 if np.isnan(e):
                     quad_average[i] = 10
             # print "quad_average", quad_average
-            # try:
 
             q = np.min(quad_average[quad_average.nonzero()])
             i = list(quad_average).index(q)
-            # this is raised when np.min(empty array), i.e. when there are no objects nearby    
-            # except ValueError, e:
-            #     # distance is big, and thus we don't care
-            #     q = 10
-            #     i = None
             print "quad", (i, q)
             
             # if i'm still close to an object
-            if q < .3:
+            
+            if q < 1.5:
                 if self.yaw:
-                    self.twist.angular.z = self.turn_k*(angle_diff(self.opposite_turns_rad[i], self.yaw))
-                    # if it has reached the desired angle
-                    if angle_diff(self.opposite_turns_rad[i], self.yaw) < 0.01:
-                        # stop turning
-                        # self.turn_flag = True
-                        pass
-                        # set initial x,y
-                        self.ex_x, self.ex_y = self.x, self.y
-        # once I'm in safe distance
-        # elif q > .3:
-        # # elif q in [.3:2]:
-        #     if angle_diff(0, self.yaw) > 0.1:
-        #         self.twist.angular.z = self.turn_k*(angle_diff(0, self.yaw))
-        #     else:
+                    # print "YAW"
+                    # print "opposite_turns", self.opposite_turns_rad[i]
 
-        if self.turn_flag:
-            self.twist.linear.x = 1
+                    if self.turn_target is None:
+                        # if quad 0, we are turning clockwise; if quad 1, we are turning counterclockwise 
+                        self.counterclockwise = i
+                        self.turn_target = [self.yaw-math.pi/2, self.yaw+math.pi/2][i]
+                    
+                    print "self.turn_target", self.turn_target
+
+                    self.twist.angular.z = self.turn_k*(angle_diff(self.turn_target, self.yaw))
+                    # if it has reached the desired angle
+                    print "angle_diff: ", np.abs(angle_diff(self.turn_target, self.yaw))
+                    if np.abs(angle_diff(self.turn_target, self.yaw)) < 0.1:
+                        self.params_to_go_forward()
+
+            # once I'm in safe distance
+            else:
+                self.params_to_go_forward()
+        else:
+            self.twist.linear.x = .1
+
+    def params_to_go_forward(self):
+        self.twist.angular.z = 0
+        self.noturn = True
+        self.turn_target = None
+        # set initial x,y -> to prepare for move forward (in self.odom_signal)
+        self.ex_x, self.ex_y = self.x, self.y
+
 
     def run(self):
         r = rospy.Rate(10)
         while not rospy.is_shutdown():
             if self.twist:
-                pass
+                # pass
                 # print self.twist
-                # self.pub.publish(self.twist)
+                self.pub.publish(self.twist)
             r.sleep()
 
 if __name__ == '__main__':
