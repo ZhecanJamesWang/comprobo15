@@ -50,6 +50,7 @@ class ObstacleAvoidance(object):
         self.yaw = None
         self.ex_x, self.ex_y = None, None
         self.first_jank = True
+        self.adjust_angle_flag = False
 
     @staticmethod
     def convert_pose_to_xy_and_theta(pose):
@@ -63,6 +64,7 @@ class ObstacleAvoidance(object):
         self.x, self.y, self.yaw = self.convert_pose_to_xy_and_theta(self.odom.pose.pose)
         if self.first_jank:
             self.ex_x, self.ex_y = self.x, self.y
+            self.final_target = self.yaw
             self.first_jank = False
 
         if self.noturn:
@@ -99,30 +101,36 @@ class ObstacleAvoidance(object):
             print "quad", (i, q)
             
             # if i'm still close to an object
-            
-            if q < 1.5:
-                if self.yaw:
-                    # print "YAW"
-                    # print "opposite_turns", self.opposite_turns_rad[i]
+            if not self.adjust_angle_flag:
+                if q < 1.5:
+                    if self.yaw:
+                        # print "YAW"
+                        # print "opposite_turns", self.opposite_turns_rad[i]
 
-                    if self.turn_target is None:
-                        # if quad 0, we are turning clockwise; if quad 1, we are turning counterclockwise 
-                        self.counterclockwise = i
-                        self.turn_target = [self.yaw-math.pi/2, self.yaw+math.pi/2][i]
-                    
-                    print "self.turn_target", self.turn_target
+                        if self.turn_target is None:
+                            self.turn_target = [self.yaw-math.pi/2, self.yaw+math.pi/2][i]
+                        
+                        print "self.turn_target", self.turn_target
 
-                    self.twist.angular.z = self.turn_k*(angle_diff(self.turn_target, self.yaw))
-                    # if it has reached the desired angle
-                    print "angle_diff: ", np.abs(angle_diff(self.turn_target, self.yaw))
-                    if np.abs(angle_diff(self.turn_target, self.yaw)) < 0.1:
-                        self.params_to_go_forward()
-
-            # once I'm in safe distance
+                        self.twist.angular.z = self.turn_k*(angle_diff(self.turn_target, self.yaw))
+                        # if it has reached the desired angle
+                        print "angle_diff: ", np.abs(angle_diff(self.turn_target, self.yaw))
+                        if np.abs(angle_diff(self.turn_target, self.yaw)) < 0.1:
+                            self.params_to_go_forward()
+                            self.adjust_angle_flag = True
+                # once I'm in safe distance
             else:
-                self.params_to_go_forward()
+                self.adjust_original_angle()
         else:
             self.twist.linear.x = .1
+
+    def adjust_original_angle(self):
+        self.twist.angular.z = self.turn_k*(angle_diff(self.final_target, self.yaw))
+        self.adjust_angle_flag = True
+        if np.abs(angle_diff(self.final_target, self.yaw)) < 0.1:
+            self.params_to_go_forward()
+            self.adjust_angle_flag = False
+
 
     def params_to_go_forward(self):
         self.twist.angular.z = 0
