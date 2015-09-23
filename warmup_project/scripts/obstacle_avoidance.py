@@ -41,16 +41,18 @@ class ObstacleAvoidance(object):
         self.range_rad = math.pi / 180 * self.range
         self.num_quads = int(360/self.range)
         self.opposite_turns = [(i*self.range+180+self.range/2) % 360 for i in range(self.num_quads)]
-        # self.opposite_turns_rad = [deg * math.pi / 180 for deg in self.opposite_turns]
-        self.turn_k = .2
+        self.turn_k = 1
         self.twist = Twist()
         self.noturn = True
         self.turn_target = None
-        self.unit_dist = 0.4
+        self.unit_dist = 0.1
+        self.object_distance = 0.9
+        self.epsilon = 0.1
         self.yaw = None
         self.ex_x, self.ex_y = None, None
         self.first_jank = True
         self.adjust_angle_flag = False
+        self.turning = False
 
     @staticmethod
     def convert_pose_to_xy_and_theta(pose):
@@ -73,13 +75,10 @@ class ObstacleAvoidance(object):
             # once we've moved the appropriate distance
             if d >= self.unit_dist:
                 # we are preparing to turn again
-                self.noturn = False
-                self.twist.linear.x = 0
-
-
+                self.params_to_turn()
 
     def scan_signal(self, msg):
-        print "(self.noturn, yaw)", (self.noturn, self.yaw)
+        # print "(self.noturn, yaw, adjust)", (self.noturn, self.yaw, self.adjust_angle_flag)
         if not self.noturn:
             self.scan = msg
             quad = [np.array(self.scan.ranges[i*self.range:(i+1)*self.range]) for i in range(self.num_quads)]
@@ -94,58 +93,56 @@ class ObstacleAvoidance(object):
             for i, e in enumerate(quad_average):
                 if np.isnan(e):
                     quad_average[i] = 10
-            # print "quad_average", quad_average
 
+            # get the range and quadrant number (q, i) of the closet object
             q = np.min(quad_average[quad_average.nonzero()])
             i = list(quad_average).index(q)
-            print "quad", (i, q)
-            
+             
             # if i'm still close to an object
             if not self.adjust_angle_flag:
-                if q < 1.5:
-                    if self.yaw:
-                        # print "YAW"
-                        # print "opposite_turns", self.opposite_turns_rad[i]
+                if self.turn_target:
+                    self.twist.angular.z = self.turn_k*(angle_diff(self.turn_target, self.yaw))
 
-                        if self.turn_target is None:
+                    # if it has reached the desired angle
+                    # print "angle_diff: ", np.abs(angle_diff(self.turn_target, self.yaw))
+                    if np.abs(angle_diff(self.turn_target, self.yaw)) < self.epsilon:
+                        self.params_to_go_forward()
+                        self.adjust_angle_flag = True
+                else:
+                    if q < self.object_distance:
+                        if self.yaw:
                             self.turn_target = [self.yaw-math.pi/2, self.yaw+math.pi/2][i]
                         
-                        print "self.turn_target", self.turn_target
+                    else:
+                        self.params_to_go_forward()
 
-                        self.twist.angular.z = self.turn_k*(angle_diff(self.turn_target, self.yaw))
-                        # if it has reached the desired angle
-                        print "angle_diff: ", np.abs(angle_diff(self.turn_target, self.yaw))
-                        if np.abs(angle_diff(self.turn_target, self.yaw)) < 0.1:
-                            self.params_to_go_forward()
-                            self.adjust_angle_flag = True
-                # once I'm in safe distance
+            # once I'm in safe distance
             else:
                 self.adjust_original_angle()
         else:
-            self.twist.linear.x = .1
+            self.twist.linear.x = 1
 
     def adjust_original_angle(self):
         self.twist.angular.z = self.turn_k*(angle_diff(self.final_target, self.yaw))
         self.adjust_angle_flag = True
-        if np.abs(angle_diff(self.final_target, self.yaw)) < 0.1:
+        if np.abs(angle_diff(self.final_target, self.yaw)) < self.epsilon:
             self.params_to_go_forward()
             self.adjust_angle_flag = False
-
 
     def params_to_go_forward(self):
         self.twist.angular.z = 0
         self.noturn = True
         self.turn_target = None
-        # set initial x,y -> to prepare for move forward (in self.odom_signal)
         self.ex_x, self.ex_y = self.x, self.y
 
+    def params_to_turn(self):
+        self.noturn = False
+        self.twist.linear.x = 0
 
     def run(self):
         r = rospy.Rate(10)
         while not rospy.is_shutdown():
             if self.twist:
-                # pass
-                # print self.twist
                 self.pub.publish(self.twist)
             r.sleep()
 

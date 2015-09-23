@@ -23,6 +23,7 @@ class PersonFollowing(object):
         self.epsilon = 25
         self.movement = False
         self.queue_size = 5
+
     def bump_signal(self, msg):
         self.bump = msg
 
@@ -44,6 +45,7 @@ class PersonFollowing(object):
         else:
             std = np.std(self.checksum_queue)
             print "q, std: ", (self.checksum_queue, std)
+
             # clear the queue for the next check movement
             self.checksum_queue = []
             
@@ -56,11 +58,12 @@ class PersonFollowing(object):
     def scan_signal(self, msg):
         self.scan = msg
         self.check_movement()
+
         print "self.movement: ", self.movement
+
         if self.movement:
             left = self.scan.ranges[0:self.width/2]
             right = self.scan.ranges[360-self.width/2:360]
-            # print left + right
             all_valid_scans = [x for x in left + right if x > 0.0]
             left_count = sum([dist > 0.0 for dist in left if dist < 3])
             right_count = sum([dist > 0.0 for dist in right if dist < 3])
