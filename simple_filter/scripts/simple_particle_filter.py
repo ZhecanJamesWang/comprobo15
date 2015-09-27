@@ -88,9 +88,9 @@ class SimpleParticleFilter(object):
 
         histogram.hist([p.position for p in self.pf.particles],
                        weights=[p.weight for p in self.pf.particles],
-                       bins=np.arange(-0.5,3.5,.02))
+                       bins=np.arange(-0.5+min(self.walls),0.5+max(self.walls),.02))
 
-        histogram.set_xlim([-.2,3.2])
+        histogram.set_xlim([-.2+min(self.walls),0.2+max(self.walls)])
         histogram.set_ylim([0,1])
         plt.draw()
 
