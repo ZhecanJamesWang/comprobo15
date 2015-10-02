@@ -57,6 +57,14 @@ class ComboPFOA(object):
         self.moving_object_detected = False
         self.bumped = False
 
+    @staticmethod
+    def convert_pose_to_xy_and_theta(pose):
+        """ Convert pose (geometry_msgs.Pose) to a (x,y,yaw) tuple """
+        orientation_tuple = (pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w)
+        angles = euler_from_quaternion(orientation_tuple)
+        return pose.position.x, pose.position.y, angles[2]
+
+
     def checksum_with_angles(self, ranges):
         total = 0
         for i in range(-self.degrees, self.degrees + 1):
@@ -102,6 +110,7 @@ class ComboPFOA(object):
         self.check_movement()
         print "self.moving_object_detected: ", self.moving_object_detected
 
+
     def process_odom(self, msg):
         self.odom = msg
         self.x, self.y, self.yaw = self.convert_pose_to_xy_and_theta(self.odom.pose.pose)
@@ -118,6 +127,57 @@ class ComboPFOA(object):
                 # we are preparing to turn again
                 self.params_to_turn()
             
+    def obstacle_avoidance(self):
+        while not rospy.is_shutdown():
+            if not self.noturn:
+                self.scan = msg
+                quad = [np.array(self.scan.ranges[i*self.range:(i+1)*self.range]) for i in range(self.num_quads)]
+                quad = [quad[0],quad[3]]
+                
+                # remove the zeros
+                quad = [q[q.nonzero()] for q in quad]
+
+                quad_average = np.array([np.mean(q) for q in quad])
+                
+                # if nan, make big!
+                for i, e in enumerate(quad_average):
+                    if np.isnan(e):
+                        quad_average[i] = 10
+
+                # get the range and quadrant number (q, i) of the closet object
+                q = np.min(quad_average[quad_average.nonzero()])
+                i = list(quad_average).index(q)
+                 
+                # if i'm still close to an object
+                if not self.adjust_angle_flag:
+                    if self.turn_target:
+                        self.twist.angular.z = self.turn_k*(angle_diff(self.turn_target, self.yaw))
+
+                        # if it has reached the desired angle
+                        # print "angle_diff: ", np.abs(angle_diff(self.turn_target, self.yaw))
+                        if np.abs(angle_diff(self.turn_target, self.yaw)) < self.epsilon:
+                            self.params_to_go_forward()
+                            self.adjust_angle_flag = True
+                    else:
+                        if q < self.object_distance:
+                            if self.yaw:
+                                self.turn_target = [self.yaw-math.pi/2, self.yaw+math.pi/2][i]
+                            
+                        else:
+                            self.params_to_go_forward()
+
+                # once I'm in safe distance
+                else:
+                    self.adjust_original_angle()
+            else:
+                self.twist.linear.x = 1
+
+            if self.moving_object_detected:
+                return ComboPFOA.PERSON_FOLLOW_STATE
+            
+
+
+
     def person_following(self):
         while not rospy.is_shutdown():
             # scans
@@ -147,12 +207,26 @@ class ComboPFOA(object):
                 self.stop_movement()
                 return ComboPFOA.OBSTACLE_AVOIDANCE_STATE
 
-        if self.bumped:
-            self.stop_movement()
+        # if self.bumped:
+        #     self.stop_movement()
 
-    def obstacle_avoidance(self):
-        while not rospy.is_shutdown():
-            
+    def adjust_original_angle(self):
+        self.twist.angular.z = self.turn_k*(angle_diff(self.final_target, self.yaw))
+        self.adjust_angle_flag = True
+        if np.abs(angle_diff(self.final_target, self.yaw)) < self.epsilon:
+            self.params_to_go_forward()
+            self.adjust_angle_flag = False
+
+    def params_to_go_forward(self):
+        self.twist.angular.z = 0
+        self.noturn = True
+        self.turn_target = None
+        self.ex_x, self.ex_y = self.x, self.y  
+
+    def params_to_turn(self):
+        self.noturn = False
+        self.twist.linear.x = 0
+      
     def run(self):
         while not rospy.is_shutdown():
             if self.state == ComboPFOA.OBSTACLE_AVOIDANCE_STATE:
