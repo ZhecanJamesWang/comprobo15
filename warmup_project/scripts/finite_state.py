@@ -58,7 +58,7 @@ class ComboPFOA(object):
         self.bumped = False
 
     @staticmethod
-    def convert_pose_to_xy_and_theta(pose):
+    def convert_pose_to_xy_and_theta(self, pose):
         """ Convert pose (geometry_msgs.Pose) to a (x,y,yaw) tuple """
         orientation_tuple = (pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w)
         angles = euler_from_quaternion(orientation_tuple)
